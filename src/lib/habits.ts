@@ -18,21 +18,23 @@ export const isHabitScheduled = (habit: Habit, date: Date): boolean =>
 export const isCompletedOn = (habit: Habit, date: Date): boolean =>
   habit.completions.includes(toDateKey(date));
 
-export const getCurrentStreak = (habit: Habit): number => {
+export const isHabitActive = (habit: Habit): boolean => {
+  if (!habit.expiresAt) return true;
+  return habit.expiresAt >= toDateKey(new Date());
+};
+
+export const getCurrentStreak = (habit: Habit, freezes: string[] = []): number => {
   if (habit.days.length === 0) return 0;
+  const frozenSet = new Set(freezes);
   let streak = 0;
   const cursor = new Date();
-  // Walk back day by day checking only scheduled days
   for (let i = 0; i < 365; i++) {
+    const key = toDateKey(cursor);
     if (isHabitScheduled(habit, cursor)) {
-      if (isCompletedOn(habit, cursor)) {
+      if (isCompletedOn(habit, cursor) || frozenSet.has(key)) {
         streak++;
       } else {
-        // If today is scheduled but not completed yet, allow skip (don't break streak)
-        if (i === 0) {
-          cursor.setDate(cursor.getDate() - 1);
-          continue;
-        }
+        if (i === 0) { cursor.setDate(cursor.getDate() - 1); continue; }
         break;
       }
     }
@@ -40,6 +42,9 @@ export const getCurrentStreak = (habit: Habit): number => {
   }
   return streak;
 };
+
+export const getBestStreak = (habits: Habit[], freezes: string[] = []): number =>
+  Math.max(0, ...habits.map((h) => getCurrentStreak(h, freezes)));
 
 export const getLongestStreak = (habit: Habit): number => {
   if (habit.completions.length === 0) return 0;

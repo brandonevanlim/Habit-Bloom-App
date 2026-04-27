@@ -3,6 +3,55 @@ import { Heatmap } from "@/components/Heatmap";
 import { completionRate, getCurrentStreak, getLongestStreak, isCompletedOn, isHabitScheduled } from "@/lib/habits";
 import { Flame, TrendingUp, Target, Calendar } from "lucide-react";
 
+interface WeekRate { label: string; rate: number }
+
+const WeeklyTrend = ({ rates }: { rates: WeekRate[] }) => {
+  const n = rates.length;
+  const W = 280, H = 90;
+  const padX = 8, padT = 14, chartH = 58, labelY = H - 3;
+  const step = (W - padX * 2) / n;
+  const barW = Math.round(step * 0.55);
+
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} className="w-full" aria-hidden>
+      {/* Baseline */}
+      <line
+        x1={padX} y1={padT + chartH} x2={W - padX} y2={padT + chartH}
+        style={{ stroke: "hsl(var(--border))", strokeWidth: 1 }}
+      />
+      {rates.map((r, i) => {
+        const cx = padX + i * step + step / 2;
+        const barH = Math.max(r.rate === 0 ? 0 : 2, (r.rate / 100) * chartH);
+        const barX = cx - barW / 2;
+        const barY = padT + chartH - barH;
+        const showLabel = i % 2 === 1; // every other week
+        return (
+          <g key={i}>
+            {barH > 0 && (
+              <rect
+                x={barX} y={barY} width={barW} height={barH} rx={2}
+                style={{ fill: "hsl(var(--primary) / 0.75)" }}
+              />
+            )}
+            <text
+              x={cx} y={barY - 2} textAnchor="middle" fontSize={6.5}
+              style={{ fill: "hsl(var(--primary))", fontWeight: 600 }}
+            >
+              {r.rate > 0 ? `${r.rate}%` : ""}
+            </text>
+            {showLabel && (
+              <text x={cx} y={labelY} textAnchor="middle" fontSize={6.5}
+                style={{ fill: "hsl(var(--muted-foreground))" }}>
+                {r.label}
+              </text>
+            )}
+          </g>
+        );
+      })}
+    </svg>
+  );
+};
+
 const AnalyticsPage = () => {
   const { habits } = useApp();
   const rate7 = completionRate(habits, 7);
@@ -10,10 +59,35 @@ const AnalyticsPage = () => {
   const totalCompletions = habits.reduce((s, h) => s + h.completions.length, 0);
   const bestStreak = habits.reduce((m, h) => Math.max(m, getLongestStreak(h)), 0);
 
+  const today = new Date();
+
+  // 8-week completion rates
+  const weeklyRates: WeekRate[] = [];
+  for (let w = 7; w >= 0; w--) {
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - today.getDay() - w * 7);
+    weekStart.setHours(0, 0, 0, 0);
+    let sched = 0, done = 0;
+    for (let d = 0; d < 7; d++) {
+      const day = new Date(weekStart);
+      day.setDate(weekStart.getDate() + d);
+      if (day > today) break;
+      for (const h of habits) {
+        if (isHabitScheduled(h, day)) {
+          sched++;
+          if (isCompletedOn(h, day)) done++;
+        }
+      }
+    }
+    weeklyRates.push({
+      label: weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      rate: sched === 0 ? 0 : Math.round((done / sched) * 100),
+    });
+  }
+
   // Compute most consistent weekday over last 30 days
   const dayCounts = [0, 0, 0, 0, 0, 0, 0];
   const dayScheduled = [0, 0, 0, 0, 0, 0, 0];
-  const today = new Date();
   for (let i = 0; i < 30; i++) {
     const d = new Date(today);
     d.setDate(today.getDate() - i);
@@ -53,6 +127,16 @@ const AnalyticsPage = () => {
           </div>
         ))}
       </div>
+
+      <section className="bg-card border border-border rounded-3xl p-5 shadow-soft">
+        <h2 className="font-semibold mb-1">Weekly trend</h2>
+        <p className="text-xs text-muted-foreground mb-3">Completion rate per week (last 8 weeks)</p>
+        {habits.length === 0 ? (
+          <p className="text-sm text-muted-foreground text-center py-4">Add habits to see your trend.</p>
+        ) : (
+          <WeeklyTrend rates={weeklyRates} />
+        )}
+      </section>
 
       <section className="bg-card border border-border rounded-3xl p-5 shadow-soft">
         <h2 className="font-semibold mb-3">Activity heatmap</h2>

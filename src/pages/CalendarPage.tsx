@@ -1,9 +1,9 @@
 import { useState } from "react";
 import { useApp } from "@/hooks/useAppState";
 import { habitsForDay, isCompletedOn, toDateKey } from "@/lib/habits";
-import { HabitCard } from "@/components/HabitCard";
-import { ChevronLeft, ChevronRight, Plus, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Trash2, Check } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { isHabitActive } from "@/lib/habits";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -43,7 +43,7 @@ const CalendarPage = () => {
   };
 
   const eventsOn = (d: Date) => events.filter((e) => e.date === toDateKey(d));
-  const selectedHabits = habitsForDay(habits, selected);
+  const selectedHabits = habitsForDay(habits.filter(isHabitActive), selected);
   const selectedEvents = eventsOn(selected);
 
   const submitEvent = () => {
@@ -185,10 +185,30 @@ const CalendarPage = () => {
             No habits scheduled for this day.
           </p>
         ) : (
-          <div className="space-y-3">
-            {selectedHabits.map((h) => (
-              <HabitCard key={h.id} habit={h} date={selected} />
-            ))}
+          <div className="space-y-2">
+            {selectedHabits.map((h) => {
+              const done = isCompletedOn(h, selected);
+              return (
+                <div
+                  key={h.id}
+                  className="flex items-center gap-3 bg-card border border-border rounded-2xl p-3 shadow-soft"
+                >
+                  <div className="text-xl w-8 text-center">{h.emoji}</div>
+                  <span className={cn(
+                    "flex-1 text-sm font-medium",
+                    done && "line-through text-muted-foreground"
+                  )}>
+                    {h.name}
+                  </span>
+                  <div className={cn(
+                    "w-6 h-6 rounded-full border-2 flex items-center justify-center shrink-0",
+                    done ? "bg-success border-success" : "border-border"
+                  )}>
+                    {done && <Check className="w-3.5 h-3.5 text-success-foreground" strokeWidth={3} />}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </section>

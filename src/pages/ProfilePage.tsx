@@ -69,7 +69,7 @@ const ProfilePage = () => {
         </Link>
       ) : (
         <Link
-          to="/coach"
+          to="/ai"
           className="block rounded-3xl p-5 gradient-primary text-primary-foreground shadow-glow transition-bounce hover:scale-[1.02]"
         >
           <div className="flex items-center gap-3">

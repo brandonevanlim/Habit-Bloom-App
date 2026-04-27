@@ -15,12 +15,17 @@ interface UnlockEvent {
   kind: string;
 }
 
+export const FREE_HABIT_LIMIT = 5;
+export const LOGIN_BONUSES = [5, 10, 15, 15, 15, 15, 25] as const; // days 1-7, total = 100
+
 interface Ctx {
   habits: Habit[];
   events: CalendarEvent[];
   user: UserState;
   syncing: boolean;
   addHabit: (h: Omit<Habit, "id" | "createdAt" | "completions">) => void;
+  addTempHabit: (h: Omit<Habit, "id" | "createdAt" | "completions" | "expiresAt">) => void;
+  updateHabit: (id: string, updates: Partial<Pick<Habit, "name" | "emoji" | "color" | "days" | "reminderTime">>) => void;
   deleteHabit: (id: string) => void;
   toggleCompletion: (habitId: string, date: Date) => void;
   addEvent: (e: Omit<CalendarEvent, "id">) => void;
@@ -31,7 +36,10 @@ interface Ctx {
   watchAd: () => number;
   upgradeToPro: () => void;
   cancelPro: () => void;
+  freezeStreak: () => void;
   completeOnboarding: (data: OnboardingData) => void;
+  loginBonus: { coins: number; day: number } | null;
+  clearLoginBonus: () => void;
   unlockEvent: UnlockEvent | null;
   clearUnlockEvent: () => void;
 }
@@ -44,11 +52,15 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const [events, setEvents] = useState<CalendarEvent[]>(() => loadEvents());
   const [user, setUser] = useState<UserState>(() => loadUser());
   const [unlockEvent, setUnlockEvent] = useState<UnlockEvent | null>(null);
+  const [loginBonus, setLoginBonus] = useState<{ coins: number; day: number } | null>(null);
   const [syncing, setSyncing] = useState(true);
+  const loginBonusChecked = useRef(false);
 
-  // Ref so mutations always read the latest user without stale closures
+  // Refs so mutations always read the latest state without stale closures
   const userRef = useRef<UserState>(user);
   useEffect(() => { userRef.current = user; }, [user]);
+  const habitsRef = useRef<Habit[]>(habits);
+  useEffect(() => { habitsRef.current = habits; }, [habits]);
 
   // Always keep localStorage in sync as a local cache
   useEffect(() => saveHabits(habits), [habits]);
@@ -67,6 +79,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       color: habit.color,
       days: habit.days,
       completions: habit.completions,
+      reminder_time: habit.reminderTime ?? null,
+      expires_at: habit.expiresAt ?? null,
     }).then(({ error }) => { if (error) console.error("habit sync error:", error); });
   }, [authUser]);
 
@@ -90,6 +104,9 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       is_pro: u.isPro ?? false,
       pro_since: u.proSince ?? null,
       theme: u.theme ?? "dark",
+      streak_freezes: u.streakFreezes ?? [],
+      last_login_date: u.lastLoginDate ?? null,
+      login_streak: u.loginStreak ?? 0,
     }, { onConflict: "user_id" })
       .then(({ error }) => { if (error) console.error("profile sync error:", error); });
   }, [authUser]);
@@ -156,6 +173,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             days: r.days as number[],
             completions: r.completions as string[],
             createdAt: r.created_at,
+            reminderTime: r.reminder_time ?? undefined,
+            expiresAt: r.expires_at ?? undefined,
           })));
         } else {
           setHabits([]); // New account — start fresh
@@ -179,6 +198,9 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             isPro: profile.is_pro ?? u.isPro,
             proSince: profile.pro_since ?? u.proSince,
             theme: (profile.theme as "light" | "dark" | "system") ?? u.theme,
+            streakFreezes: (profile.streak_freezes as string[]) ?? u.streakFreezes,
+            lastLoginDate: profile.last_login_date ?? u.lastLoginDate,
+            loginStreak: profile.login_streak ?? u.loginStreak,
           }));
         } else {
           // New account — create a fresh profile row
@@ -266,9 +288,41 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     return () => window.clearInterval(id);
   }, [user.reminders, user.characterName, habits]);
 
+  // ─── Daily login bonus ───────────────────────────────────────────────────────
+
+  useEffect(() => {
+    if (syncing || !authUser || loginBonusChecked.current) return;
+    loginBonusChecked.current = true;
+
+    const today = toDateKey(new Date());
+    const current = userRef.current;
+    if (current.lastLoginDate === today) return; // already claimed today
+
+    const yesterday = toDateKey(new Date(Date.now() - 86_400_000));
+    const newStreak = current.lastLoginDate === yesterday
+      ? Math.min((current.loginStreak ?? 0) + 1, 7)
+      : 1;
+    const bonusCoins = LOGIN_BONUSES[newStreak - 1];
+
+    const newUser: UserState = {
+      ...current,
+      coins: current.coins + bonusCoins,
+      lastLoginDate: today,
+      loginStreak: newStreak,
+    };
+    setUser(newUser);
+    pushProfile(newUser);
+    setLoginBonus({ coins: bonusCoins, day: newStreak });
+  }, [syncing, authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ─── Mutations ────────────────────────────────────────────────────────────────
 
   const addHabit: Ctx["addHabit"] = useCallback((h) => {
+    const permanentCount = habitsRef.current.filter((x) => !x.expiresAt).length;
+    if (!userRef.current.isPro && permanentCount >= FREE_HABIT_LIMIT) {
+      toast.error("Habit limit reached", { description: "Free accounts allow 5 habits. Watch an ad for a one-day habit or upgrade to Pro." });
+      return;
+    }
     const newHabit: Habit = {
       ...h,
       id: crypto.randomUUID(),
@@ -278,6 +332,34 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     setHabits((prev) => [...prev, newHabit]);
     pushHabit(newHabit);
     toast.success("Habit created", { description: `${h.emoji} ${h.name}` });
+  }, [pushHabit]);
+
+  const addTempHabit: Ctx["addTempHabit"] = useCallback((h) => {
+    const today = toDateKey(new Date());
+    const newHabit: Habit = {
+      ...h,
+      id: crypto.randomUUID(),
+      createdAt: new Date().toISOString(),
+      completions: [],
+      expiresAt: today,
+    };
+    setHabits((prev) => [...prev, newHabit]);
+    pushHabit(newHabit);
+    toast.success("Habit added for today only", { description: `${h.emoji} ${h.name} — watch an ad tomorrow to keep it.` });
+  }, [pushHabit]);
+
+  const updateHabit: Ctx["updateHabit"] = useCallback((id, updates) => {
+    let toSync: Habit | undefined;
+    setHabits((prev) =>
+      prev.map((h) => {
+        if (h.id !== id) return h;
+        const updated = { ...h, ...updates };
+        toSync = updated;
+        return updated;
+      })
+    );
+    if (toSync) pushHabit(toSync);
+    toast.success("Habit updated");
   }, [pushHabit]);
 
   const deleteHabit: Ctx["deleteHabit"] = useCallback((id) => {
@@ -435,6 +517,27 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     toast.success("Subscription cancelled");
   }, [pushProfile]);
 
+  const freezeStreak: Ctx["freezeStreak"] = useCallback(() => {
+    const current = userRef.current;
+    if (current.coins < 50) {
+      toast.error("Not enough coins", { description: "You need 50 coins to freeze your streak." });
+      return;
+    }
+    const today = toDateKey(new Date());
+    if (current.streakFreezes?.includes(today)) {
+      toast.info("Already frozen today", { description: "Your streak is already protected for today." });
+      return;
+    }
+    const newUser: UserState = {
+      ...current,
+      coins: current.coins - 50,
+      streakFreezes: [...(current.streakFreezes ?? []), today],
+    };
+    setUser(newUser);
+    pushProfile(newUser);
+    toast.success("❄️ Streak frozen!", { description: "50 coins spent — your streak is safe today." });
+  }, [pushProfile]);
+
   const completeOnboarding: Ctx["completeOnboarding"] = useCallback((data) => {
     const newUser: UserState = {
       ...userRef.current,
@@ -474,6 +577,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         user,
         syncing,
         addHabit,
+        addTempHabit,
+        updateHabit,
         deleteHabit,
         toggleCompletion,
         addEvent,
@@ -484,7 +589,10 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         watchAd,
         upgradeToPro,
         cancelPro,
+        freezeStreak,
         completeOnboarding,
+        loginBonus,
+        clearLoginBonus: () => setLoginBonus(null),
         unlockEvent,
         clearUnlockEvent,
       }}

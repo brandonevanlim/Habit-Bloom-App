@@ -8,6 +8,8 @@ export interface Habit {
   days: WeekDay[]; // days of week scheduled
   createdAt: string; // ISO date
   completions: string[]; // ISO date strings (yyyy-mm-dd)
+  reminderTime?: string; // "HH:MM" per-habit reminder
+  expiresAt?: string; // yyyy-mm-dd — set for free-user ad-based temporary habits
 }
 
 export interface CalendarEvent {
@@ -32,6 +34,9 @@ export interface UserState {
   theme?: "light" | "dark" | "system";
   isPro?: boolean;
   proSince?: string; // ISO date when upgraded
+  streakFreezes?: string[]; // yyyy-mm-dd dates with frozen streak
+  lastLoginDate?: string; // yyyy-mm-dd
+  loginStreak?: number;   // consecutive login days (1-7)
 }
 
 export interface OnboardingData {

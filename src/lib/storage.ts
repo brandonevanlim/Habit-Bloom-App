@@ -49,6 +49,8 @@ export const loadUser = (): UserState => {
     reminders: { enabled: false, time: "09:00" },
     theme: "dark",
     isPro: false,
+    streakFreezes: [],
+    loginStreak: 0,
   };
 };
 export const saveUser = (u: UserState) =>

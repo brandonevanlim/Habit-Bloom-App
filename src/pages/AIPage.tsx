@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from "react";
 import { useApp } from "@/hooks/useAppState";
+import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Brain, Sparkles, Lightbulb, Crown, Loader2, Send, Bot, MessageCircle } from "lucide-react";
+import { Brain, Sparkles, Lightbulb, Crown, Loader2, Send, Bot, MessageCircle, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
 import {
@@ -10,34 +11,22 @@ import {
   getLongestStreak,
   isHabitScheduled,
   isCompletedOn,
-  completionRate,
 } from "@/lib/habits";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 
-// ─── Shared types ────────────────────────────────────────────────────────────
-
 type Tab = "chat" | "coach";
 type CoachMode = "suggestions" | "insights";
 
-interface CoachItem {
-  title: string;
-  body: string;
-  emoji: string;
-}
-
-interface ChatMessage {
-  role: "user" | "assistant";
-  content: string;
-}
+interface CoachItem { title: string; body: string; emoji: string }
+interface ChatMessage { role: "user" | "assistant"; content: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const summarizeHabits = (habits: ReturnType<typeof useApp>["habits"]) => {
   const today = new Date();
   return habits.map((h) => {
-    let scheduledLast14 = 0;
-    let recentCompletions = 0;
+    let scheduledLast14 = 0, recentCompletions = 0;
     for (let i = 0; i < 14; i++) {
       const d = new Date(today);
       d.setDate(today.getDate() - i);
@@ -58,7 +47,23 @@ const summarizeHabits = (habits: ReturnType<typeof useApp>["habits"]) => {
   });
 };
 
-// ─── Typing indicator ────────────────────────────────────────────────────────
+const chatKey = (uid: string) => `sprout_chat_${uid}`;
+
+const loadHistory = (uid: string): ChatMessage[] => {
+  try {
+    const raw = localStorage.getItem(chatKey(uid));
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as ChatMessage[];
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+};
+
+const saveHistory = (uid: string, msgs: ChatMessage[]) =>
+  localStorage.setItem(chatKey(uid), JSON.stringify(msgs.slice(-60)));
+
+// ─── Sub-components ───────────────────────────────────────────────────────────
 
 const TypingDots = () => (
   <div className="flex items-center gap-1 px-4 py-3">
@@ -72,37 +77,39 @@ const TypingDots = () => (
   </div>
 );
 
-// ─── Pro gate (shared) ───────────────────────────────────────────────────────
-
 const ProGate = () => (
-  <div className="space-y-6">
-    <div className="rounded-3xl p-8 border-2 border-dashed border-warning/40 bg-gradient-to-br from-warning/5 to-accent/5 text-center">
-      <div className="w-16 h-16 mx-auto rounded-3xl bg-warning/20 flex items-center justify-center mb-3">
-        <Crown className="w-8 h-8 text-warning" />
-      </div>
-      <h2 className="font-bold text-lg">Pro feature</h2>
-      <p className="text-sm text-muted-foreground mt-1 mb-5">
-        Upgrade to Sprout Pro to unlock AI habit coaching, insights, and your personal chat coach.
-      </p>
-      <Button asChild size="lg" className="rounded-2xl gradient-primary shadow-glow">
-        <Link to="/upgrade">
-          <Sparkles className="w-4 h-4 mr-2" /> Unlock Pro
-        </Link>
-      </Button>
+  <div className="rounded-3xl p-8 border-2 border-dashed border-warning/40 bg-gradient-to-br from-warning/5 to-accent/5 text-center">
+    <div className="w-16 h-16 mx-auto rounded-3xl bg-warning/20 flex items-center justify-center mb-3">
+      <Crown className="w-8 h-8 text-warning" />
     </div>
+    <h2 className="font-bold text-lg">Pro feature</h2>
+    <p className="text-sm text-muted-foreground mt-1 mb-5">
+      Upgrade to Sprout Pro to unlock AI habit coaching, insights, and your personal chat coach.
+    </p>
+    <Button asChild size="lg" className="rounded-2xl gradient-primary shadow-glow">
+      <Link to="/upgrade">
+        <Sparkles className="w-4 h-4 mr-2" /> Unlock Pro
+      </Link>
+    </Button>
   </div>
 );
 
-// ─── Chat tab ────────────────────────────────────────────────────────────────
+// ─── Chat tab ─────────────────────────────────────────────────────────────────
 
 const ChatTab = () => {
   const { habits, user } = useApp();
-  const [messages, setMessages] = useState<ChatMessage[]>([
-    {
-      role: "assistant",
-      content: `Hey ${user.displayName || "there"}! 👋 I'm Sprout AI, your personal habit coach. Ask me anything about your habits, streaks, or how to improve your routine!`,
-    },
-  ]);
+  const { user: authUser } = useAuth();
+  const uid = authUser?.id ?? "";
+
+  const welcome: ChatMessage = {
+    role: "assistant",
+    content: `Hey ${user.displayName || "there"}! 👋 I'm Sprout AI, your personal habit coach. Ask me anything about your habits, streaks, or how to improve your routine!`,
+  };
+
+  const [messages, setMessages] = useState<ChatMessage[]>(() => {
+    const history = uid ? loadHistory(uid) : [];
+    return history.length > 0 ? history : [welcome];
+  });
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -111,6 +118,10 @@ const ChatTab = () => {
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, loading]);
+
+  useEffect(() => {
+    if (uid) saveHistory(uid, messages);
+  }, [messages, uid]);
 
   const send = async () => {
     const text = input.trim();
@@ -163,10 +174,15 @@ const ChatTab = () => {
     }
   };
 
+  const clearChat = () => {
+    setMessages([welcome]);
+    if (uid) localStorage.removeItem(chatKey(uid));
+  };
+
   return (
-    <div className="flex flex-col" style={{ height: "calc(100vh - 11rem)" }}>
+    <div className="flex flex-col h-full">
       {/* Messages */}
-      <div className="flex-1 overflow-y-auto space-y-3 pr-1">
+      <div className="flex-1 min-h-0 overflow-y-auto space-y-3 pr-1">
         {messages.map((msg, i) => (
           <div
             key={i}
@@ -200,12 +216,18 @@ const ChatTab = () => {
             </div>
           </div>
         )}
-
         <div ref={bottomRef} />
       </div>
 
-      {/* Input */}
-      <div className="pt-3 flex gap-2 items-center">
+      {/* Input row */}
+      <div className="shrink-0 pt-3 flex gap-2 items-center">
+        <button
+          onClick={clearChat}
+          title="Clear chat"
+          className="w-9 h-9 flex items-center justify-center rounded-xl text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-smooth shrink-0"
+        >
+          <Trash2 className="w-4 h-4" />
+        </button>
         <Input
           ref={inputRef}
           value={input}
@@ -222,18 +244,14 @@ const ChatTab = () => {
           size="icon"
           className="rounded-2xl h-11 w-11 gradient-primary shadow-glow shrink-0"
         >
-          {loading ? (
-            <Loader2 className="w-4 h-4 animate-spin" />
-          ) : (
-            <Send className="w-4 h-4" />
-          )}
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
         </Button>
       </div>
     </div>
   );
 };
 
-// ─── Coach tab ───────────────────────────────────────────────────────────────
+// ─── Coach tab ────────────────────────────────────────────────────────────────
 
 const CoachTab = () => {
   const { habits } = useApp();
@@ -262,7 +280,6 @@ const CoachTab = () => {
 
   return (
     <div className="space-y-5">
-      {/* Mode toggle */}
       <div className="bg-card border border-border rounded-3xl p-1.5 shadow-soft flex gap-1">
         {([
           { key: "insights" as CoachMode, label: "Insights", icon: Lightbulb },
@@ -286,9 +303,7 @@ const CoachTab = () => {
 
       {mode === "suggestions" && (
         <div className="space-y-2">
-          <label htmlFor="coach-goal" className="text-sm font-medium">
-            Your goal (optional)
-          </label>
+          <label htmlFor="coach-goal" className="text-sm font-medium">Your goal (optional)</label>
           <Input
             id="coach-goal"
             value={goal}
@@ -299,21 +314,11 @@ const CoachTab = () => {
         </div>
       )}
 
-      <Button
-        onClick={run}
-        disabled={loading}
-        size="lg"
-        className="w-full rounded-2xl gradient-primary shadow-glow"
-      >
+      <Button onClick={run} disabled={loading} size="lg" className="w-full rounded-2xl gradient-primary shadow-glow">
         {loading ? (
-          <>
-            <Loader2 className="w-4 h-4 mr-2 animate-spin" /> Thinking…
-          </>
+          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Thinking…</>
         ) : (
-          <>
-            <Sparkles className="w-4 h-4 mr-2" />
-            {mode === "insights" ? "Analyze my habits" : "Suggest new habits"}
-          </>
+          <><Sparkles className="w-4 h-4 mr-2" />{mode === "insights" ? "Analyze my habits" : "Suggest new habits"}</>
         )}
       </Button>
 
@@ -339,31 +344,28 @@ const CoachTab = () => {
 
       {items.length === 0 && !loading && (
         <p className="text-xs text-center text-muted-foreground pt-2">
-          Tap the button to get personalized{" "}
-          {mode === "insights" ? "insights" : "suggestions"} based on your habits.
+          Tap the button to get personalized {mode === "insights" ? "insights" : "suggestions"} based on your habits.
         </p>
       )}
     </div>
   );
 };
 
-// ─── Main page ───────────────────────────────────────────────────────────────
+// ─── Main page ────────────────────────────────────────────────────────────────
 
 const AIPage = () => {
   const { user } = useApp();
   const [tab, setTab] = useState<Tab>("chat");
 
   return (
-    <div className="space-y-4">
-      <header>
+    // Fill exactly the content area between top padding and nav bar
+    <div className="flex flex-col" style={{ height: "calc(100dvh - 8rem)" }}>
+      <header className="shrink-0 mb-4">
         <h1 className="text-2xl font-bold tracking-tight">AI</h1>
-        <p className="text-sm text-muted-foreground mt-0.5">
-          Your personal Sprout coach
-        </p>
+        <p className="text-sm text-muted-foreground mt-0.5">Your personal Sprout coach</p>
       </header>
 
-      {/* Tab switcher */}
-      <div className="bg-card border border-border rounded-3xl p-1.5 shadow-soft flex gap-1">
+      <div className="shrink-0 mb-4 bg-card border border-border rounded-3xl p-1.5 shadow-soft flex gap-1">
         {([
           { key: "chat" as Tab, label: "Chat", icon: MessageCircle },
           { key: "coach" as Tab, label: "Coach", icon: Brain },
@@ -384,13 +386,20 @@ const AIPage = () => {
         ))}
       </div>
 
-      {!user.isPro ? (
-        <ProGate />
-      ) : tab === "chat" ? (
-        <ChatTab />
-      ) : (
-        <CoachTab />
-      )}
+      {/* Content fills remaining height */}
+      <div className="flex-1 min-h-0">
+        {!user.isPro ? (
+          <div className="overflow-y-auto h-full">
+            <ProGate />
+          </div>
+        ) : tab === "chat" ? (
+          <ChatTab />
+        ) : (
+          <div className="overflow-y-auto h-full">
+            <CoachTab />
+          </div>
+        )}
+      </div>
     </div>
   );
 };
