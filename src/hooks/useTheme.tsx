@@ -25,7 +25,7 @@ const apply = (theme: Theme): "light" | "dark" => {
 
 export const ThemeProvider = ({ children }: { children: ReactNode }) => {
   const { user, setTheme: persistTheme } = useApp();
-  const theme: Theme = user.theme ?? "system";
+  const theme: Theme = user.theme ?? "dark";
 
   useEffect(() => {
     apply(theme);

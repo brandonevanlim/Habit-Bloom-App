@@ -21,6 +21,9 @@ export interface UserState {
   coins: number;
   unlocked: string[]; // item ids
   characterName: string;
+  displayName?: string;
+  goal?: string;
+  onboardingDone?: boolean;
   reminders?: {
     enabled: boolean;
     time: string; // "HH:MM" 24h
@@ -29,4 +32,13 @@ export interface UserState {
   theme?: "light" | "dark" | "system";
   isPro?: boolean;
   proSince?: string; // ISO date when upgraded
+}
+
+export interface OnboardingData {
+  displayName: string;
+  characterName: string;
+  goal: string;
+  starterHabits: Array<{ name: string; emoji: string; color: string }>;
+  reminderEnabled: boolean;
+  reminderTime: string;
 }

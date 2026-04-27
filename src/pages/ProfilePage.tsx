@@ -35,7 +35,7 @@ const ProfilePage = () => {
         </div>
         <div className="flex-1">
           <p className="font-semibold flex items-center gap-1.5">
-            {authUser?.email ? authUser.email.split("@")[0] : "Hello, friend"}
+            {user.displayName || (authUser?.email ? authUser.email.split("@")[0] : "Hello, friend")}
             {user.isPro && (
               <span className="inline-flex items-center gap-1 text-[10px] bg-warning/15 text-warning px-1.5 py-0.5 rounded-full font-bold">
                 <Crown className="w-2.5 h-2.5" /> PRO

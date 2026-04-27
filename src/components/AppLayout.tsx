@@ -1,13 +1,13 @@
 import { ReactNode } from "react";
 import { NavLink, useLocation } from "react-router-dom";
-import { Home, Calendar as CalIcon, Sparkles, BarChart3, User, Brain } from "lucide-react";
+import { Home, Calendar as CalIcon, Sparkles, BarChart3, User, Bot } from "lucide-react";
 import { cn } from "@/lib/utils";
 
 const tabs = [
   { to: "/", label: "Home", icon: Home, end: true },
   { to: "/calendar", label: "Calendar", icon: CalIcon },
   { to: "/character", label: "Character", icon: Sparkles },
-  { to: "/coach", label: "Coach", icon: Brain },
+  { to: "/ai", label: "AI", icon: Bot },
   { to: "/analytics", label: "Stats", icon: BarChart3 },
   { to: "/profile", label: "Profile", icon: User },
 ];

@@ -5,7 +5,6 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { supabase } from "@/integrations/supabase/client";
-import { lovable } from "@/integrations/lovable";
 import { useAuth } from "@/hooks/useAuth";
 import { toast } from "sonner";
 import { z } from "zod";
@@ -65,14 +64,15 @@ const AuthPage = () => {
 
   const handleGoogle = async () => {
     setBusy(true);
-    const result = await lovable.auth.signInWithOAuth("google", {
-      redirect_uri: window.location.origin,
+    const { error } = await supabase.auth.signInWithOAuth({
+      provider: "google",
+      options: { redirectTo: window.location.origin },
     });
-    if (result.error) {
-      toast.error("Google sign-in failed");
+    if (error) {
+      toast.error("Google sign-in failed", { description: error.message });
       setBusy(false);
     }
-    // If redirected, browser navigates away — no-op here
+    // On success the browser redirects to Google — no-op here
   };
 
   if (pendingConfirm) {

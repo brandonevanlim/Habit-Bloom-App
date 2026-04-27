@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState, useRef, ReactNode, useCallback } from "react";
-import { Habit, CalendarEvent, UserState } from "@/lib/types";
+import { Habit, CalendarEvent, UserState, OnboardingData } from "@/lib/types";
 import {
   loadHabits, saveHabits, loadEvents, saveEvents, loadUser, saveUser,
 } from "@/lib/storage";
@@ -31,6 +31,7 @@ interface Ctx {
   watchAd: () => number;
   upgradeToPro: () => void;
   cancelPro: () => void;
+  completeOnboarding: (data: OnboardingData) => void;
   unlockEvent: UnlockEvent | null;
   clearUnlockEvent: () => void;
 }
@@ -43,7 +44,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   const [events, setEvents] = useState<CalendarEvent[]>(() => loadEvents());
   const [user, setUser] = useState<UserState>(() => loadUser());
   const [unlockEvent, setUnlockEvent] = useState<UnlockEvent | null>(null);
-  const [syncing, setSyncing] = useState(false);
+  const [syncing, setSyncing] = useState(true);
 
   // Ref so mutations always read the latest user without stale closures
   const userRef = useRef<UserState>(user);
@@ -83,6 +84,9 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       coins: u.coins,
       unlocked: u.unlocked,
       character_name: u.characterName,
+      display_name: u.displayName ?? null,
+      goal: u.goal ?? null,
+      onboarding_done: u.onboardingDone ?? false,
       is_pro: u.isPro ?? false,
       pro_since: u.proSince ?? null,
       theme: u.theme ?? "dark",
@@ -112,10 +116,25 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
   useEffect(() => {
     if (!authUser) {
-      // User logged out — reload from local cache
-      setHabits(loadHabits());
-      setEvents(loadEvents());
-      setUser(loadUser());
+      // User logged out — wipe local state so the next account starts clean
+      const fresh: UserState = {
+        coins: 0,
+        unlocked: ["default"],
+        characterName: "Sprout",
+        displayName: "",
+        goal: "",
+        onboardingDone: false,
+        reminders: { enabled: false, time: "09:00" },
+        theme: "dark",
+        isPro: false,
+      };
+      saveHabits([]);
+      saveEvents([]);
+      saveUser(fresh);
+      setHabits([]);
+      setEvents([]);
+      setUser(fresh);
+      setSyncing(false);
       return;
     }
 
@@ -139,13 +158,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             createdAt: r.created_at,
           })));
         } else {
-          // Nothing in cloud yet — migrate local habits up
-          const local = loadHabits();
-          if (local.length > 0) {
-            await supabase.from("habits").upsert(
-              local.map((h) => ({ ...h, user_id: authUser.id }))
-            );
-          }
+          setHabits([]); // New account — start fresh
         }
 
         // PROFILE
@@ -160,20 +173,25 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             coins: profile.coins ?? u.coins,
             unlocked: (profile.unlocked as string[]) ?? u.unlocked,
             characterName: profile.character_name ?? u.characterName,
+            displayName: profile.display_name ?? u.displayName,
+            goal: profile.goal ?? u.goal,
+            onboardingDone: profile.onboarding_done ?? u.onboardingDone,
             isPro: profile.is_pro ?? u.isPro,
             proSince: profile.pro_since ?? u.proSince,
             theme: (profile.theme as "light" | "dark" | "system") ?? u.theme,
           }));
         } else {
-          // Profile row not created yet — push local state up
-          const local = loadUser();
+          // New account — create a fresh profile row
           await supabase.from("profiles").upsert({
             user_id: authUser.id,
-            coins: local.coins,
-            unlocked: local.unlocked,
-            character_name: local.characterName,
-            is_pro: local.isPro ?? false,
-            theme: local.theme ?? "dark",
+            coins: 0,
+            unlocked: ["default"],
+            character_name: "Sprout",
+            display_name: null,
+            goal: null,
+            onboarding_done: false,
+            is_pro: false,
+            theme: "dark",
           }, { onConflict: "user_id" });
         }
 
@@ -191,12 +209,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             note: r.note ?? undefined,
           })));
         } else {
-          const local = loadEvents();
-          if (local.length > 0) {
-            await supabase.from("calendar_events").upsert(
-              local.map((e) => ({ ...e, user_id: authUser.id }))
-            );
-          }
+          setEvents([]); // New account — start fresh
         }
       } catch (err) {
         console.error("Cloud load error:", err);
@@ -422,6 +435,35 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     toast.success("Subscription cancelled");
   }, [pushProfile]);
 
+  const completeOnboarding: Ctx["completeOnboarding"] = useCallback((data) => {
+    const newUser: UserState = {
+      ...userRef.current,
+      displayName: data.displayName,
+      characterName: data.characterName,
+      goal: data.goal,
+      onboardingDone: true,
+      reminders: {
+        enabled: data.reminderEnabled,
+        time: data.reminderTime,
+        lastNotified: undefined,
+      },
+    };
+    setUser(newUser);
+    pushProfile(newUser);
+
+    if (data.starterHabits.length > 0) {
+      const newHabits: Habit[] = data.starterHabits.map((h) => ({
+        ...h,
+        id: crypto.randomUUID(),
+        createdAt: new Date().toISOString(),
+        completions: [],
+        days: [0, 1, 2, 3, 4, 5, 6] as Habit["days"],
+      }));
+      setHabits((prev) => [...prev, ...newHabits]);
+      newHabits.forEach((h) => pushHabit(h));
+    }
+  }, [pushProfile, pushHabit]);
+
   const clearUnlockEvent = useCallback(() => setUnlockEvent(null), []);
 
   return (
@@ -442,6 +484,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         watchAd,
         upgradeToPro,
         cancelPro,
+        completeOnboarding,
         unlockEvent,
         clearUnlockEvent,
       }}

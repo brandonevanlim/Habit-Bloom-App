@@ -12,6 +12,7 @@ import AnalyticsPage from "./pages/AnalyticsPage.tsx";
 import ProfilePage from "./pages/ProfilePage.tsx";
 import UpgradePage from "./pages/UpgradePage.tsx";
 import CoachPage from "./pages/CoachPage.tsx";
+import AIPage from "./pages/AIPage.tsx";
 import AuthPage from "./pages/AuthPage.tsx";
 import NotificationsPage from "./pages/NotificationsPage.tsx";
 import { AppLayout } from "./components/AppLayout.tsx";
@@ -21,6 +22,8 @@ import { AuthProvider, useAuth } from "./hooks/useAuth.tsx";
 import { CelebrationOverlay } from "./components/CelebrationOverlay.tsx";
 import { useApp } from "./hooks/useAppState.tsx";
 import { SplashScreen } from "./components/SplashScreen.tsx";
+import { OnboardingFlow } from "./components/OnboardingFlow.tsx";
+import { Loader2 } from "lucide-react";
 
 const queryClient = new QueryClient();
 
@@ -29,12 +32,25 @@ const GlobalCelebration = () => {
   return <CelebrationOverlay unlock={unlockEvent} onClose={clearUnlockEvent} />;
 };
 
+const OnboardingGate = ({ children }: { children: JSX.Element }) => {
+  const { user, syncing } = useApp();
+  if (syncing) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-background">
+        <Loader2 className="w-8 h-8 animate-spin text-primary" />
+      </div>
+    );
+  }
+  if (!user.onboardingDone) return <OnboardingFlow />;
+  return children;
+};
+
 const RequireAuth = ({ children }: { children: JSX.Element }) => {
   const { session, loading } = useAuth();
   const location = useLocation();
   if (loading) return null;
   if (!session) return <Navigate to="/auth" replace state={{ from: location }} />;
-  return children;
+  return <OnboardingGate>{children}</OnboardingGate>;
 };
 
 const AppShell = () => {
@@ -69,6 +85,7 @@ const AppShell = () => {
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/upgrade" element={<UpgradePage />} />
+                    <Route path="/ai" element={<AIPage />} />
                     <Route path="/coach" element={<CoachPage />} />
                     {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                     <Route path="*" element={<NotFound />} />
