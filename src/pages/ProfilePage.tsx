@@ -48,6 +48,43 @@ const ProfilePage = () => {
         </div>
       </div>
 
+      {/* Friend Code */}
+      {user.friendCode && (
+        <div className="bg-card border border-border rounded-2xl px-4 py-4 shadow-soft">
+          <p className="text-xs text-muted-foreground mb-1">Your friend code</p>
+          <div className="flex items-center gap-3">
+            <span className="font-mono font-bold text-2xl tracking-[0.2em] text-primary">
+              {user.friendCode}
+            </span>
+            <button
+              onClick={() => {
+                navigator.clipboard.writeText(user.friendCode!);
+                toast.success("Copied to clipboard!");
+              }}
+              className="ml-auto text-xs font-semibold text-primary border border-primary/30 rounded-lg px-3 py-1.5 hover:bg-primary/10 transition-smooth"
+            >
+              Copy
+            </button>
+          </div>
+          <p className="text-[11px] text-muted-foreground mt-1.5">
+            Share this with friends so they can find you in the Friends tab.
+          </p>
+        </div>
+      )}
+
+      {/* Character shop shortcut */}
+      <Link
+        to="/character"
+        className="flex items-center gap-3 bg-card border border-border rounded-2xl px-4 py-3 shadow-soft hover:border-primary/30 transition-smooth"
+      >
+        <span className="text-2xl">🌿</span>
+        <div className="flex-1">
+          <p className="text-sm font-semibold">Character Shop</p>
+          <p className="text-xs text-muted-foreground">Spend coins on pets & themes</p>
+        </div>
+        <ChevronRight className="w-4 h-4 text-muted-foreground" />
+      </Link>
+
       {/* Pro banner */}
       {!user.isPro ? (
         <Link

@@ -13,6 +13,7 @@ import ProfilePage from "./pages/ProfilePage.tsx";
 import UpgradePage from "./pages/UpgradePage.tsx";
 import CoachPage from "./pages/CoachPage.tsx";
 import AIPage from "./pages/AIPage.tsx";
+import FriendsPage from "./pages/FriendsPage.tsx";
 import AuthPage from "./pages/AuthPage.tsx";
 import NotificationsPage from "./pages/NotificationsPage.tsx";
 import { AppLayout } from "./components/AppLayout.tsx";
@@ -86,6 +87,7 @@ const AppShell = () => {
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/upgrade" element={<UpgradePage />} />
                     <Route path="/ai" element={<AIPage />} />
+                    <Route path="/friends" element={<FriendsPage />} />
                     <Route path="/coach" element={<CoachPage />} />
                     {/* ADD ALL CUSTOM ROUTES ABOVE THE CATCH-ALL "*" ROUTE */}
                     <Route path="*" element={<NotFound />} />

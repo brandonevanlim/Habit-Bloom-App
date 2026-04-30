@@ -3,22 +3,15 @@ import { useApp } from "@/hooks/useAppState";
 import { useAuth } from "@/hooks/useAuth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Brain, Sparkles, Lightbulb, Crown, Loader2, Send, Bot, MessageCircle, Trash2 } from "lucide-react";
+import { Brain, Sparkles, Crown, Loader2, Send, Bot, MessageCircle, Trash2 } from "lucide-react";
 import { Link } from "react-router-dom";
 import { supabase } from "@/integrations/supabase/client";
-import {
-  getCurrentStreak,
-  getLongestStreak,
-  isHabitScheduled,
-  isCompletedOn,
-} from "@/lib/habits";
+import { getCurrentStreak, getLongestStreak, isHabitScheduled, isCompletedOn } from "@/lib/habits";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
+import { CoachPanel } from "@/components/CoachPanel";
 
 type Tab = "chat" | "coach";
-type CoachMode = "suggestions" | "insights";
-
-interface CoachItem { title: string; body: string; emoji: string }
 interface ChatMessage { role: "user" | "assistant"; content: string }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -123,13 +116,20 @@ const ChatTab = () => {
     if (uid) saveHistory(uid, messages);
   }, [messages, uid]);
 
-  const send = async () => {
-    const text = input.trim();
+  const CHIPS = [
+    "📊 How am I doing overall?",
+    "😤 Why do I keep missing habits?",
+    "🗓 Help me plan this week",
+    "💡 Suggest a new habit for me",
+  ];
+
+  const send = async (override?: string) => {
+    const text = (override ?? input).trim();
     if (!text || loading) return;
 
     const userMsg: ChatMessage = { role: "user", content: text };
     setMessages((prev) => [...prev, userMsg]);
-    setInput("");
+    if (!override) setInput("");
     setLoading(true);
 
     try {
@@ -168,10 +168,7 @@ const ChatTab = () => {
   };
 
   const handleKey = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      send();
-    }
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); }
   };
 
   const clearChat = () => {
@@ -219,6 +216,21 @@ const ChatTab = () => {
         <div ref={bottomRef} />
       </div>
 
+      {/* Suggestion chips — shown only on a fresh chat */}
+      {messages.length <= 1 && !loading && (
+        <div className="shrink-0 flex flex-wrap gap-2 pt-2 pb-1">
+          {CHIPS.map(chip => (
+            <button
+              key={chip}
+              onClick={() => send(chip)}
+              className="text-xs bg-primary/10 text-primary rounded-full px-3 py-1.5 hover:bg-primary/20 transition-smooth"
+            >
+              {chip}
+            </button>
+          ))}
+        </div>
+      )}
+
       {/* Input row */}
       <div className="shrink-0 pt-3 flex gap-2 items-center">
         <button
@@ -253,103 +265,7 @@ const ChatTab = () => {
 
 // ─── Coach tab ────────────────────────────────────────────────────────────────
 
-const CoachTab = () => {
-  const { habits } = useApp();
-  const [mode, setMode] = useState<CoachMode>("insights");
-  const [goal, setGoal] = useState("");
-  const [items, setItems] = useState<CoachItem[]>([]);
-  const [loading, setLoading] = useState(false);
-
-  const run = async () => {
-    setLoading(true);
-    setItems([]);
-    try {
-      const { data, error } = await supabase.functions.invoke("ai-coach", {
-        body: { mode, habits: summarizeHabits(habits), goal: goal.trim() || undefined },
-      });
-      if (error) throw error;
-      if (data?.error) throw new Error(data.error);
-      setItems(data?.items ?? []);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : "Something went wrong";
-      toast.error("AI coach unavailable", { description: msg });
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  return (
-    <div className="space-y-5">
-      <div className="bg-card border border-border rounded-3xl p-1.5 shadow-soft flex gap-1">
-        {([
-          { key: "insights" as CoachMode, label: "Insights", icon: Lightbulb },
-          { key: "suggestions" as CoachMode, label: "Suggestions", icon: Brain },
-        ] as const).map((t) => (
-          <button
-            key={t.key}
-            onClick={() => setMode(t.key)}
-            className={cn(
-              "flex-1 flex items-center justify-center gap-1.5 py-2 rounded-2xl text-sm font-medium transition-smooth",
-              mode === t.key
-                ? "bg-primary text-primary-foreground shadow-soft"
-                : "text-muted-foreground hover:text-foreground"
-            )}
-          >
-            <t.icon className="w-4 h-4" />
-            {t.label}
-          </button>
-        ))}
-      </div>
-
-      {mode === "suggestions" && (
-        <div className="space-y-2">
-          <label htmlFor="coach-goal" className="text-sm font-medium">Your goal (optional)</label>
-          <Input
-            id="coach-goal"
-            value={goal}
-            onChange={(e) => setGoal(e.target.value)}
-            placeholder="e.g. Get fit, sleep better, read more"
-            className="rounded-2xl"
-          />
-        </div>
-      )}
-
-      <Button onClick={run} disabled={loading} size="lg" className="w-full rounded-2xl gradient-primary shadow-glow">
-        {loading ? (
-          <><Loader2 className="w-4 h-4 mr-2 animate-spin" /> Thinking…</>
-        ) : (
-          <><Sparkles className="w-4 h-4 mr-2" />{mode === "insights" ? "Analyze my habits" : "Suggest new habits"}</>
-        )}
-      </Button>
-
-      {items.length > 0 && (
-        <div className="space-y-3">
-          {items.map((it, i) => (
-            <div
-              key={i}
-              className="bg-card border border-border rounded-2xl p-4 shadow-soft animate-slide-up"
-              style={{ animationDelay: `${i * 80}ms` }}
-            >
-              <div className="flex items-start gap-3">
-                <div className="text-2xl">{it.emoji}</div>
-                <div className="flex-1">
-                  <p className="font-semibold text-sm">{it.title}</p>
-                  <p className="text-sm text-muted-foreground mt-1">{it.body}</p>
-                </div>
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {items.length === 0 && !loading && (
-        <p className="text-xs text-center text-muted-foreground pt-2">
-          Tap the button to get personalized {mode === "insights" ? "insights" : "suggestions"} based on your habits.
-        </p>
-      )}
-    </div>
-  );
-};
+const CoachTab = () => <CoachPanel />;
 
 // ─── Main page ────────────────────────────────────────────────────────────────
 

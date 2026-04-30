@@ -89,16 +89,115 @@ export type Database = {
         }
         Relationships: []
       }
+      calendar_events: {
+        Row: {
+          id: string
+          user_id: string
+          title: string
+          date: string
+          note: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          title: string
+          date: string
+          note?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          title?: string
+          date?: string
+          note?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
+      friendships: {
+        Row: {
+          id: string
+          requester_id: string
+          addressee_id: string
+          status: string
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          requester_id: string
+          addressee_id: string
+          status?: string
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          requester_id?: string
+          addressee_id?: string
+          status?: string
+          created_at?: string
+        }
+        Relationships: []
+      }
+      habits: {
+        Row: {
+          id: string
+          user_id: string
+          name: string
+          emoji: string
+          color: string
+          days: number[]
+          completions: string[]
+          reminder_time: string | null
+          expires_at: string | null
+          created_at: string
+        }
+        Insert: {
+          id?: string
+          user_id: string
+          name: string
+          emoji?: string
+          color?: string
+          days?: number[]
+          completions?: string[]
+          reminder_time?: string | null
+          expires_at?: string | null
+          created_at?: string
+        }
+        Update: {
+          id?: string
+          user_id?: string
+          name?: string
+          emoji?: string
+          color?: string
+          days?: number[]
+          completions?: string[]
+          reminder_time?: string | null
+          expires_at?: string | null
+          created_at?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           avatar_url: string | null
+          best_streak: number
           character_name: string
           coins: number
           created_at: string
           display_name: string | null
+          friend_code: string | null
+          goal: string | null
+          habits_done_today: number
           id: string
           is_pro: boolean
+          last_login_date: string | null
+          last_stats_date: string | null
+          login_streak: number
+          onboarding_done: boolean
           pro_since: string | null
+          streak_freezes: string[]
           theme: string
           unlocked: string[]
           updated_at: string
@@ -106,13 +205,22 @@ export type Database = {
         }
         Insert: {
           avatar_url?: string | null
+          best_streak?: number
           character_name?: string
           coins?: number
           created_at?: string
           display_name?: string | null
+          friend_code?: string | null
+          goal?: string | null
+          habits_done_today?: number
           id?: string
           is_pro?: boolean
+          last_login_date?: string | null
+          last_stats_date?: string | null
+          login_streak?: number
+          onboarding_done?: boolean
           pro_since?: string | null
+          streak_freezes?: string[]
           theme?: string
           unlocked?: string[]
           updated_at?: string
@@ -120,13 +228,22 @@ export type Database = {
         }
         Update: {
           avatar_url?: string | null
+          best_streak?: number
           character_name?: string
           coins?: number
           created_at?: string
           display_name?: string | null
+          friend_code?: string | null
+          goal?: string | null
+          habits_done_today?: number
           id?: string
           is_pro?: boolean
+          last_login_date?: string | null
+          last_stats_date?: string | null
+          login_streak?: number
+          onboarding_done?: boolean
           pro_since?: string | null
+          streak_freezes?: string[]
           theme?: string
           unlocked?: string[]
           updated_at?: string

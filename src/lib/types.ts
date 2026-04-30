@@ -37,6 +37,7 @@ export interface UserState {
   streakFreezes?: string[]; // yyyy-mm-dd dates with frozen streak
   lastLoginDate?: string; // yyyy-mm-dd
   loginStreak?: number;   // consecutive login days (1-7)
+  friendCode?: string;    // 6-char shareable code e.g. "A7B3K2"
 }
 
 export interface OnboardingData {

@@ -1,7 +1,8 @@
 import { useApp } from "@/hooks/useAppState";
 import { Button } from "@/components/ui/button";
-import { Crown, Check, Sparkles, Brain, BarChart3, Palette } from "lucide-react";
+import { Crown, Check, Sparkles, Brain, BarChart3, Palette, Flame } from "lucide-react";
 import { useNavigate } from "react-router-dom";
+import { toDateKey, isHabitScheduled, getDailyStreak } from "@/lib/habits";
 
 const PERKS = [
   { icon: Brain, title: "AI habit coach", desc: "Personalized suggestions based on your goals" },
@@ -11,8 +12,32 @@ const PERKS = [
 ];
 
 const UpgradePage = () => {
-  const { user, upgradeToPro, cancelPro } = useApp();
+  const { user, habits, upgradeToPro, cancelPro } = useApp();
   const navigate = useNavigate();
+
+  // Calculate what the user's streak would be if Pro auto-froze every missed day
+  const actualStreak = getDailyStreak(habits, user.streakFreezes ?? []);
+  const proStreak = (() => {
+    if (habits.length === 0) return 0;
+    const earliest = habits
+      .reduce((min, h) => (h.createdAt < min ? h.createdAt : min), habits[0].createdAt)
+      .slice(0, 10);
+    let streak = 0;
+    const cursor = new Date();
+    for (let i = 0; i < 365; i++) {
+      const key = toDateKey(cursor);
+      if (key < earliest) break;
+      const scheduled = habits.filter(h => isHabitScheduled(h, cursor));
+      if (scheduled.length === 0) { cursor.setDate(cursor.getDate() - 1); continue; }
+      if (i === 0 && !scheduled.some(h => h.completions.includes(key))) {
+        cursor.setDate(cursor.getDate() - 1); continue;
+      }
+      streak++;
+      cursor.setDate(cursor.getDate() - 1);
+    }
+    return streak;
+  })();
+  const lostDays = proStreak - actualStreak;
 
   if (user.isPro) {
     return (
@@ -70,6 +95,30 @@ const UpgradePage = () => {
         </p>
       </header>
 
+      {/* Pro streak counter — only shown when there are lost days */}
+      {lostDays > 0 && (
+        <div className="rounded-3xl border border-warning/40 bg-warning/10 p-5 shadow-soft">
+          <div className="flex items-center gap-2 mb-3">
+            <Flame className="w-5 h-5 text-warning" />
+            <p className="font-semibold text-sm">Your streak is bigger than you think</p>
+          </div>
+          <div className="grid grid-cols-2 gap-3 mb-3">
+            <div className="bg-card rounded-2xl p-3 text-center border border-border">
+              <div className="text-2xl font-bold text-muted-foreground">{actualStreak}d</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">your streak now</div>
+            </div>
+            <div className="bg-card rounded-2xl p-3 text-center border border-warning/50">
+              <div className="text-2xl font-bold text-warning">{proStreak}d</div>
+              <div className="text-[10px] text-muted-foreground mt-0.5">with Pro</div>
+            </div>
+          </div>
+          <p className="text-xs text-muted-foreground leading-relaxed">
+            You missed {lostDays} day{lostDays === 1 ? "" : "s"} that broke your streak.
+            Pro's auto-freeze would have kept it alive automatically — no coins needed.
+          </p>
+        </div>
+      )}
+
       <div className="rounded-3xl border-2 border-primary p-6 bg-card shadow-glow">
         <div className="flex items-baseline gap-1 justify-center">
           <span className="text-4xl font-bold">$4.99</span>
@@ -83,7 +132,7 @@ const UpgradePage = () => {
           className="w-full rounded-2xl mt-4 gradient-primary shadow-glow"
           onClick={() => {
             upgradeToPro();
-            navigate("/coach");
+            navigate("/ai");
           }}
         >
           Start free trial

@@ -1,6 +1,6 @@
 import { useApp } from "@/hooks/useAppState";
 import { Heatmap } from "@/components/Heatmap";
-import { completionRate, getCurrentStreak, getLongestStreak, isCompletedOn, isHabitScheduled } from "@/lib/habits";
+import { completionRate, getCurrentStreak, getDailyStreak, getLongestStreak, isCompletedOn, isHabitScheduled } from "@/lib/habits";
 import { Flame, TrendingUp, Target, Calendar } from "lucide-react";
 
 interface WeekRate { label: string; rate: number }
@@ -53,11 +53,11 @@ const WeeklyTrend = ({ rates }: { rates: WeekRate[] }) => {
 };
 
 const AnalyticsPage = () => {
-  const { habits } = useApp();
+  const { habits, user } = useApp();
   const rate7 = completionRate(habits, 7);
   const rate30 = completionRate(habits, 30);
   const totalCompletions = habits.reduce((s, h) => s + h.completions.length, 0);
-  const bestStreak = habits.reduce((m, h) => Math.max(m, getLongestStreak(h)), 0);
+  const bestStreak = getDailyStreak(habits, user.streakFreezes ?? []);
 
   const today = new Date();
 
@@ -107,7 +107,7 @@ const AnalyticsPage = () => {
   const stats = [
     { label: "7-day rate", value: `${rate7}%`, icon: Target, color: "text-primary" },
     { label: "30-day rate", value: `${rate30}%`, icon: TrendingUp, color: "text-success" },
-    { label: "Best streak", value: bestStreak, icon: Flame, color: "text-accent" },
+    { label: "Streak", value: bestStreak, icon: Flame, color: "text-accent" },
     { label: "Total done", value: totalCompletions, icon: Calendar, color: "text-warning" },
   ];
 

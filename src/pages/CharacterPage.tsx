@@ -6,17 +6,7 @@ import { cn } from "@/lib/utils";
 import { Link } from "react-router-dom";
 import { toast } from "sonner";
 import { celebrateUnlock } from "@/lib/celebrate";
-
-const ITEMS = [
-  { id: "default", name: "Sprout", emoji: "🌱", cost: 0, kind: "Skin" },
-  { id: "hat-leaf", name: "Leaf hat", emoji: "🌿", cost: 30, kind: "Hat" },
-  { id: "pet-bunny", name: "Bunny pal", emoji: "🐰", cost: 80, kind: "Pet" },
-  { id: "bg-meadow", name: "Meadow", emoji: "🌼", cost: 60, kind: "Theme" },
-  { id: "hat-crown", name: "Royal crown", emoji: "👑", cost: 150, kind: "Hat" },
-  { id: "pet-dragon", name: "Tiny dragon", emoji: "🐲", cost: 250, kind: "Pet" },
-  { id: "bg-space", name: "Cosmic", emoji: "🌌", cost: 200, kind: "Theme" },
-  { id: "hat-party", name: "Party hat", emoji: "🎉", cost: 45, kind: "Hat" },
-];
+import { SHOP_ITEMS as ITEMS } from "@/lib/shopItems";
 
 const CharacterPage = () => {
   const { user, purchaseItem, watchAd } = useApp();

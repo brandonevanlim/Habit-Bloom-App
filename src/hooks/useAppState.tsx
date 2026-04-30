@@ -3,7 +3,7 @@ import { Habit, CalendarEvent, UserState, OnboardingData } from "@/lib/types";
 import {
   loadHabits, saveHabits, loadEvents, saveEvents, loadUser, saveUser,
 } from "@/lib/storage";
-import { toDateKey, getCurrentStreak } from "@/lib/habits";
+import { toDateKey, getCurrentStreak, getDailyStreak, isHabitScheduled } from "@/lib/habits";
 import { toast } from "sonner";
 import { celebrateUnlock, celebrateMilestone } from "@/lib/celebrate";
 import { supabase } from "@/integrations/supabase/client";
@@ -14,6 +14,20 @@ interface UnlockEvent {
   name: string;
   kind: string;
 }
+
+interface WeeklyRecap {
+  rate: number;
+  prevRate: number;
+  streak: number;
+  totalDone: number;
+  weekLabel: string;
+}
+
+const FRIEND_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789"; // no 0/O/1/I to avoid confusion
+const generateFriendCode = (): string =>
+  Array.from({ length: 6 }, () =>
+    FRIEND_CODE_CHARS[Math.floor(Math.random() * FRIEND_CODE_CHARS.length)]
+  ).join("");
 
 export const FREE_HABIT_LIMIT = 5;
 export const LOGIN_BONUSES = [5, 10, 15, 15, 15, 15, 25] as const; // days 1-7, total = 100
@@ -37,9 +51,12 @@ interface Ctx {
   upgradeToPro: () => void;
   cancelPro: () => void;
   freezeStreak: () => void;
+  recoverStreak: (habitId: string, date: string, via: "coins" | "ad") => void;
   completeOnboarding: (data: OnboardingData) => void;
   loginBonus: { coins: number; day: number } | null;
   clearLoginBonus: () => void;
+  weeklyRecap: WeeklyRecap | null;
+  clearWeeklyRecap: () => void;
   unlockEvent: UnlockEvent | null;
   clearUnlockEvent: () => void;
 }
@@ -47,12 +64,13 @@ interface Ctx {
 const AppCtx = createContext<Ctx | null>(null);
 
 export const AppStateProvider = ({ children }: { children: ReactNode }) => {
-  const { user: authUser } = useAuth();
+  const { user: authUser, loading: authLoading } = useAuth();
   const [habits, setHabits] = useState<Habit[]>(() => loadHabits());
   const [events, setEvents] = useState<CalendarEvent[]>(() => loadEvents());
   const [user, setUser] = useState<UserState>(() => loadUser());
   const [unlockEvent, setUnlockEvent] = useState<UnlockEvent | null>(null);
   const [loginBonus, setLoginBonus] = useState<{ coins: number; day: number } | null>(null);
+  const [weeklyRecap, setWeeklyRecap] = useState<WeeklyRecap | null>(null);
   const [syncing, setSyncing] = useState(true);
   const loginBonusChecked = useRef(false);
 
@@ -69,6 +87,16 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
   // ─── Supabase helpers ────────────────────────────────────────────────────────
 
+  const syncWarnedRef = useRef(false);
+  const warnSyncFailed = useCallback(() => {
+    if (syncWarnedRef.current) return;
+    syncWarnedRef.current = true;
+    toast.error("Sync failed", {
+      description: "Your data is saved locally but couldn't reach the cloud. Check your connection or Supabase RLS policies.",
+      duration: 8000,
+    });
+  }, []);
+
   const pushHabit = useCallback(async (habit: Habit) => {
     if (!authUser) return;
     await supabase.from("habits").upsert({
@@ -81,8 +109,8 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       completions: habit.completions,
       reminder_time: habit.reminderTime ?? null,
       expires_at: habit.expiresAt ?? null,
-    }).then(({ error }) => { if (error) console.error("habit sync error:", error); });
-  }, [authUser]);
+    }).then(({ error }) => { if (error) { console.error("habit sync error:", error); warnSyncFailed(); } });
+  }, [authUser, warnSyncFailed]);
 
   const dropHabit = useCallback(async (id: string) => {
     if (!authUser) return;
@@ -93,8 +121,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
 
   const pushProfile = useCallback(async (u: UserState) => {
     if (!authUser) return;
-    await supabase.from("profiles").upsert({
-      user_id: authUser.id,
+    const { error } = await supabase.from("profiles").update({
       coins: u.coins,
       unlocked: u.unlocked,
       character_name: u.characterName,
@@ -107,9 +134,10 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
       streak_freezes: u.streakFreezes ?? [],
       last_login_date: u.lastLoginDate ?? null,
       login_streak: u.loginStreak ?? 0,
-    }, { onConflict: "user_id" })
-      .then(({ error }) => { if (error) console.error("profile sync error:", error); });
-  }, [authUser]);
+      friend_code: u.friendCode ?? null,
+    }).eq("user_id", authUser.id);
+    if (error) { console.error("profile sync error:", error); warnSyncFailed(); }
+  }, [authUser, warnSyncFailed]);
 
   const pushEvent = useCallback(async (event: CalendarEvent) => {
     if (!authUser) return;
@@ -132,8 +160,12 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
   // ─── Cloud load on login / reset on logout ───────────────────────────────────
 
   useEffect(() => {
+    // Wait until the auth session has been resolved — avoids wiping localStorage
+    // while Supabase is still checking the stored token on page load.
+    if (authLoading) return;
+
     if (!authUser) {
-      // User logged out — wipe local state so the next account starts clean
+      // User genuinely logged out — wipe local state so next account starts clean
       const fresh: UserState = {
         coins: 0,
         unlocked: ["default"],
@@ -158,53 +190,89 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     (async () => {
       setSyncing(true);
       try {
-        // HABITS
-        const { data: cloudHabits } = await supabase
+        // ── HABITS ────────────────────────────────────────────────────────────
+        const { data: cloudHabits, error: habitsErr } = await supabase
           .from("habits").select("*")
           .eq("user_id", authUser.id)
           .order("created_at");
 
-        if (cloudHabits && cloudHabits.length > 0) {
-          setHabits(cloudHabits.map((r) => ({
-            id: r.id,
-            name: r.name,
-            emoji: r.emoji,
-            color: r.color,
-            days: r.days as number[],
-            completions: r.completions as string[],
-            createdAt: r.created_at,
-            reminderTime: r.reminder_time ?? undefined,
-            expiresAt: r.expires_at ?? undefined,
-          })));
+        if (habitsErr) {
+          console.error("Habits load error:", habitsErr);
+          // Keep whatever is already in state (localStorage was not wiped)
+        } else if (cloudHabits && cloudHabits.length > 0) {
+          // Merge cloud completions with local completions so any write that
+          // didn't reach Supabase is not silently lost on next session.
+          const localMap = new Map(habitsRef.current.map(h => [h.id, h]));
+          setHabits(cloudHabits.map((r) => {
+            const local = localMap.get(r.id);
+            const cloudComps = r.completions as string[];
+            const completions = local
+              ? [...new Set([...cloudComps, ...local.completions])].sort()
+              : cloudComps;
+            return {
+              id: r.id,
+              name: r.name,
+              emoji: r.emoji,
+              color: r.color,
+              days: r.days as number[],
+              completions,
+              createdAt: r.created_at,
+              reminderTime: r.reminder_time ?? undefined,
+              expiresAt: r.expires_at ?? undefined,
+            };
+          }));
         } else {
-          setHabits([]); // New account — start fresh
+          setHabits([]); // Confirmed empty (new account)
         }
 
-        // PROFILE
-        const { data: profile } = await supabase
+        // ── PROFILE ───────────────────────────────────────────────────────────
+        const { data: profile, error: profileErr } = await supabase
           .from("profiles").select("*")
           .eq("user_id", authUser.id)
           .single();
 
         if (profile) {
-          setUser((u) => ({
-            ...u,
-            coins: profile.coins ?? u.coins,
-            unlocked: (profile.unlocked as string[]) ?? u.unlocked,
-            characterName: profile.character_name ?? u.characterName,
-            displayName: profile.display_name ?? u.displayName,
-            goal: profile.goal ?? u.goal,
-            onboardingDone: profile.onboarding_done ?? u.onboardingDone,
-            isPro: profile.is_pro ?? u.isPro,
-            proSince: profile.pro_since ?? u.proSince,
-            theme: (profile.theme as "light" | "dark" | "system") ?? u.theme,
-            streakFreezes: (profile.streak_freezes as string[]) ?? u.streakFreezes,
-            lastLoginDate: profile.last_login_date ?? u.lastLoginDate,
-            loginStreak: profile.login_streak ?? u.loginStreak,
-          }));
-        } else {
-          // New account — create a fresh profile row
-          await supabase.from("profiles").upsert({
+          const friendCode: string = (profile.friend_code as string | null)
+            ?? generateFriendCode();
+          if (!profile.friend_code) {
+            supabase.from("profiles")
+              .update({ friend_code: friendCode })
+              .eq("user_id", authUser.id)
+              .then(({ error }) => { if (error) console.error("friend code set error:", error); });
+          }
+
+          setUser((u) => {
+            // For numeric fields that accumulate (coins, streak), take the larger value
+            // as a safety net in case cloud writes were delayed or failed.
+            const cloudDate = profile.last_login_date as string | null | undefined;
+            const localDate = u.lastLoginDate;
+            const lastLoginDate = cloudDate && localDate
+              ? (cloudDate >= localDate ? cloudDate : localDate)
+              : (cloudDate ?? localDate);
+            const loginStreak = Math.max(profile.login_streak ?? 0, u.loginStreak ?? 0);
+            const coins = Math.max(profile.coins ?? 0, u.coins ?? 0);
+
+            return {
+              ...u,
+              coins,
+              unlocked: (profile.unlocked as string[]) ?? u.unlocked,
+              characterName: profile.character_name ?? u.characterName,
+              displayName: profile.display_name ?? u.displayName,
+              goal: profile.goal ?? u.goal,
+              onboardingDone: profile.onboarding_done ?? u.onboardingDone,
+              isPro: profile.is_pro ?? u.isPro,
+              proSince: profile.pro_since ?? u.proSince,
+              theme: (profile.theme as "light" | "dark" | "system") ?? u.theme,
+              streakFreezes: (profile.streak_freezes as string[]) ?? u.streakFreezes,
+              lastLoginDate,
+              loginStreak,
+              friendCode,
+            };
+          });
+        } else if (profileErr?.code === "PGRST116") {
+          // "no rows" — genuinely new account, create a fresh profile
+          const friendCode = generateFriendCode();
+          await supabase.from("profiles").insert({
             user_id: authUser.id,
             coins: 0,
             unlocked: ["default"],
@@ -214,16 +282,23 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             onboarding_done: false,
             is_pro: false,
             theme: "dark",
-          }, { onConflict: "user_id" });
+            friend_code: friendCode,
+          });
+          setUser((u) => ({ ...u, friendCode }));
+        } else if (profileErr) {
+          // Query failed — keep local data (localStorage was not wiped)
+          console.error("Profile load error:", profileErr);
         }
 
-        // CALENDAR EVENTS
-        const { data: cloudEvents } = await supabase
+        // ── CALENDAR EVENTS ───────────────────────────────────────────────────
+        const { data: cloudEvents, error: eventsErr } = await supabase
           .from("calendar_events").select("*")
           .eq("user_id", authUser.id)
           .order("date");
 
-        if (cloudEvents && cloudEvents.length > 0) {
+        if (eventsErr) {
+          console.error("Events load error:", eventsErr);
+        } else if (cloudEvents && cloudEvents.length > 0) {
           setEvents(cloudEvents.map((r) => ({
             id: r.id,
             title: r.title,
@@ -231,7 +306,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
             note: r.note ?? undefined,
           })));
         } else {
-          setEvents([]); // New account — start fresh
+          setEvents([]);
         }
       } catch (err) {
         console.error("Cloud load error:", err);
@@ -239,7 +314,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         setSyncing(false);
       }
     })();
-  }, [authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [authUser?.id, authLoading]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Daily reminder scheduler ─────────────────────────────────────────────────
 
@@ -314,6 +389,108 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     pushProfile(newUser);
     setLoginBonus({ coins: bonusCoins, day: newStreak });
   }, [syncing, authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Weekly recap (shown every Saturday) ─────────────────────────────────────
+
+  useEffect(() => {
+    if (syncing || !authUser) return;
+    const today = new Date();
+    if (today.getDay() !== 6) return; // Saturday only
+    const satKey = toDateKey(today);
+    if (localStorage.getItem("lastRecapDate") === satKey) return;
+
+    const currentHabits = habitsRef.current;
+    if (currentHabits.length === 0) return;
+
+    // This week (last 7 days)
+    let sched7 = 0, done7 = 0, totalDone = 0;
+    for (let i = 0; i < 7; i++) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      const key = toDateKey(d);
+      for (const h of currentHabits) {
+        if (isHabitScheduled(h, d)) {
+          sched7++;
+          if (h.completions.includes(key)) { done7++; totalDone++; }
+        }
+      }
+    }
+    const rate = sched7 === 0 ? 0 : Math.round((done7 / sched7) * 100);
+
+    // Previous week (days 8–14)
+    let sched14 = 0, done14 = 0;
+    for (let i = 7; i < 14; i++) {
+      const d = new Date(today); d.setDate(today.getDate() - i);
+      const key = toDateKey(d);
+      for (const h of currentHabits) {
+        if (isHabitScheduled(h, d)) {
+          sched14++;
+          if (h.completions.includes(key)) done14++;
+        }
+      }
+    }
+    const prevRate = sched14 === 0 ? 0 : Math.round((done14 / sched14) * 100);
+    const streak = getDailyStreak(currentHabits, userRef.current.streakFreezes ?? []);
+
+    const weekStart = new Date(today);
+    weekStart.setDate(today.getDate() - 6);
+    const weekLabel = `${weekStart.toLocaleDateString(undefined, { month: "short", day: "numeric" })} – ${today.toLocaleDateString(undefined, { month: "short", day: "numeric" })}`;
+
+    setWeeklyRecap({ rate, prevRate, streak, totalDone, weekLabel });
+    localStorage.setItem("lastRecapDate", satKey);
+  }, [syncing, authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Streak warning notification (~8 PM) ─────────────────────────────────────
+
+  useEffect(() => {
+    if (!authUser) return;
+    const MESSAGES = [
+      "Sprout is stress-eating and it's YOUR fault 🌱😰 Your streak won't survive another hour of this.",
+      "Your streak has entered its villain arc. Redemption arc still available — for a few more hours ⏰",
+      "Plot twist: you do the habit, streak survives, life is good 🎬 Write that ending.",
+      "Your future self just texted: 'please don't break the streak bro' — no pressure 🙏",
+      "8PM reality check ⚠️ Habits incomplete. Streak in danger. Sprout absolutely panicking rn.",
+      "Okay bestie, no pressure — but your streak IS literally watching you right now 👀",
+      "🚨 Breaking: local streak on life support. Doctors say one completed habit could save it.",
+      "Your habit is doing the puppy eyes 🥺 Don't be the person who says no to puppy eyes.",
+      "This notification is your villain origin story... unless you go do the thing right now.",
+      "Today is almost gone and your streak is screaming into the void 😤 Be its hero.",
+    ];
+    const check = () => {
+      if (typeof window === "undefined" || !("Notification" in window)) return;
+      if (Notification.permission !== "granted") return;
+      const now = new Date();
+      if (now.getHours() < 20) return;
+      const today = toDateKey(now);
+      if (localStorage.getItem("lastStreakWarning") === today) return;
+      const incomplete = habitsRef.current.filter(
+        h => isHabitScheduled(h, now) && !h.completions.includes(today)
+      );
+      if (incomplete.length === 0) return;
+      const msg = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
+      try {
+        new Notification("⚠️ Streak at risk!", { body: msg, icon: "/favicon.ico" });
+        localStorage.setItem("lastStreakWarning", today);
+      } catch { /* ignore */ }
+    };
+    check();
+    const id = window.setInterval(check, 60_000);
+    return () => window.clearInterval(id);
+  }, [authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ─── Public stats sync (leaderboard data) ────────────────────────────────────
+
+  useEffect(() => {
+    if (syncing || !authUser) return;
+    const todayKey = toDateKey(new Date());
+    const habitsDoneToday = habits.filter(h => h.completions.includes(todayKey)).length;
+    const bestStreak = getDailyStreak(habits, userRef.current.streakFreezes ?? []);
+    supabase.from("profiles").update({
+      habits_done_today: habitsDoneToday,
+      last_stats_date: todayKey,
+      best_streak: bestStreak,
+    }).eq("user_id", authUser.id)
+      .then(({ error }) => { if (error) console.error("public stats sync error:", error); });
+  }, [habits, syncing, authUser?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ─── Mutations ────────────────────────────────────────────────────────────────
 
@@ -538,6 +715,34 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     toast.success("❄️ Streak frozen!", { description: "50 coins spent — your streak is safe today." });
   }, [pushProfile]);
 
+  const recoverStreak: Ctx["recoverStreak"] = useCallback((habitId, date, via) => {
+    const current = userRef.current;
+    if (via === "coins" && current.coins < 100) {
+      toast.error("Not enough coins", { description: "You need 100 coins to recover this streak." });
+      return;
+    }
+    let toSync: Habit | undefined;
+    setHabits(prev => prev.map(h => {
+      if (h.id !== habitId || h.completions.includes(date)) return h;
+      toSync = { ...h, completions: [...h.completions, date].sort() };
+      return toSync!;
+    }));
+    if (!toSync) return;
+    pushHabit(toSync);
+    if (via === "coins") {
+      const newUser = { ...current, coins: current.coins - 100 };
+      setUser(newUser);
+      pushProfile(newUser);
+      toast.success("Streak recovered! 🔥", { description: "100 coins spent." });
+    } else {
+      const bonus = 5 + Math.floor(Math.random() * 11); // 5–15 coins
+      const newUser = { ...current, coins: current.coins + bonus };
+      setUser(newUser);
+      pushProfile(newUser);
+      toast.success("Streak recovered! 🔥", { description: `Ad watched — +${bonus} coins bonus!` });
+    }
+  }, [pushHabit, pushProfile]);
+
   const completeOnboarding: Ctx["completeOnboarding"] = useCallback((data) => {
     const newUser: UserState = {
       ...userRef.current,
@@ -590,9 +795,12 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         upgradeToPro,
         cancelPro,
         freezeStreak,
+        recoverStreak,
         completeOnboarding,
         loginBonus,
         clearLoginBonus: () => setLoginBonus(null),
+        weeklyRecap,
+        clearWeeklyRecap: () => setWeeklyRecap(null),
         unlockEvent,
         clearUnlockEvent,
       }}
