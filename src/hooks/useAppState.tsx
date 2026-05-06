@@ -51,7 +51,7 @@ interface Ctx {
   upgradeToPro: () => void;
   cancelPro: () => void;
   freezeStreak: () => void;
-  recoverStreak: (habitId: string, date: string, via: "coins" | "ad") => void;
+  recoverDailyStreak: (via: "coins" | "ad") => void;
   completeOnboarding: (data: OnboardingData) => void;
   loginBonus: { coins: number; day: number } | null;
   clearLoginBonus: () => void;
@@ -715,33 +715,33 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
     toast.success("❄️ Streak frozen!", { description: "50 coins spent — your streak is safe today." });
   }, [pushProfile]);
 
-  const recoverStreak: Ctx["recoverStreak"] = useCallback((habitId, date, via) => {
+  const recoverDailyStreak: Ctx["recoverDailyStreak"] = useCallback((via) => {
     const current = userRef.current;
-    if (via === "coins" && current.coins < 100) {
-      toast.error("Not enough coins", { description: "You need 100 coins to recover this streak." });
+    if (via === "coins" && current.coins < 50) {
+      toast.error("Not enough coins", { description: "You need 50 coins to recover your streak." });
       return;
     }
-    let toSync: Habit | undefined;
-    setHabits(prev => prev.map(h => {
-      if (h.id !== habitId || h.completions.includes(date)) return h;
-      toSync = { ...h, completions: [...h.completions, date].sort() };
-      return toSync!;
-    }));
-    if (!toSync) return;
-    pushHabit(toSync);
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yKey = toDateKey(yesterday);
+    if (current.streakFreezes?.includes(yKey)) {
+      toast.info("Already recovered", { description: "Yesterday is already protected." });
+      return;
+    }
+    const newFreezes = [...(current.streakFreezes ?? []), yKey];
     if (via === "coins") {
-      const newUser = { ...current, coins: current.coins - 100 };
+      const newUser = { ...current, coins: current.coins - 50, streakFreezes: newFreezes };
       setUser(newUser);
       pushProfile(newUser);
-      toast.success("Streak recovered! 🔥", { description: "100 coins spent." });
+      toast.success("Streak recovered! 🔥", { description: "50 coins spent." });
     } else {
-      const bonus = 5 + Math.floor(Math.random() * 11); // 5–15 coins
-      const newUser = { ...current, coins: current.coins + bonus };
+      const bonus = 5 + Math.floor(Math.random() * 11);
+      const newUser = { ...current, coins: current.coins + bonus, streakFreezes: newFreezes };
       setUser(newUser);
       pushProfile(newUser);
       toast.success("Streak recovered! 🔥", { description: `Ad watched — +${bonus} coins bonus!` });
     }
-  }, [pushHabit, pushProfile]);
+  }, [pushProfile]);
 
   const completeOnboarding: Ctx["completeOnboarding"] = useCallback((data) => {
     const newUser: UserState = {
@@ -795,7 +795,7 @@ export const AppStateProvider = ({ children }: { children: ReactNode }) => {
         upgradeToPro,
         cancelPro,
         freezeStreak,
-        recoverStreak,
+        recoverDailyStreak,
         completeOnboarding,
         loginBonus,
         clearLoginBonus: () => setLoginBonus(null),

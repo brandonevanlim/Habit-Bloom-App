@@ -127,7 +127,6 @@ export const getStreakRecoveryDate = (habit: Habit, freezes: string[] = []): str
   if (!isHabitScheduled(habit, yesterday)) return null;
   if (habit.completions.includes(yKey)) return null;
   if (freezes.includes(yKey)) return null;
-  // Only offer recovery if there was recent activity (within the past 2–7 days)
   for (let i = 2; i <= 7; i++) {
     const d = new Date();
     d.setDate(d.getDate() - i);
@@ -135,4 +134,24 @@ export const getStreakRecoveryDate = (habit: Habit, freezes: string[] = []): str
     if (habit.completions.includes(key) || freezes.includes(key)) return yKey;
   }
   return null;
+};
+
+// Returns true if yesterday's daily streak was missed and is worth recovering.
+export const canRecoverDailyStreak = (habits: Habit[], freezes: string[]): boolean => {
+  const yesterday = new Date();
+  yesterday.setDate(yesterday.getDate() - 1);
+  const yKey = toDateKey(yesterday);
+  if (freezes.includes(yKey)) return false;
+  const scheduled = habits.filter(h => isHabitScheduled(h, yesterday));
+  if (scheduled.length === 0) return false;
+  if (scheduled.some(h => h.completions.includes(yKey))) return false;
+  // Only offer recovery if there was recent activity before yesterday
+  for (let i = 2; i <= 7; i++) {
+    const d = new Date();
+    d.setDate(d.getDate() - i);
+    const key = toDateKey(d);
+    const dayHabits = habits.filter(h => isHabitScheduled(h, d));
+    if (dayHabits.some(h => h.completions.includes(key)) || freezes.includes(key)) return true;
+  }
+  return false;
 };

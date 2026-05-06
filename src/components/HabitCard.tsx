@@ -1,11 +1,11 @@
 import { useState } from "react";
-import { Check, Pencil } from "lucide-react";
+import { Check, Pencil, Timer } from "lucide-react";
 import { Habit } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { getCurrentStreak, isCompletedOn } from "@/lib/habits";
+import { isCompletedOn } from "@/lib/habits";
 import { useApp } from "@/hooks/useAppState";
-import { Flame } from "lucide-react";
 import { CreateHabitDialog } from "./CreateHabitDialog";
+import { PomodoroSheet } from "./PomodoroSheet";
 
 const colorMap: Record<string, string> = {
   primary: "bg-primary text-primary-foreground",
@@ -15,10 +15,10 @@ const colorMap: Record<string, string> = {
 };
 
 export const HabitCard = ({ habit, date }: { habit: Habit; date: Date }) => {
-  const { toggleCompletion, user } = useApp();
+  const { toggleCompletion } = useApp();
   const [editOpen, setEditOpen] = useState(false);
+  const [timerOpen, setTimerOpen] = useState(false);
   const done = isCompletedOn(habit, date);
-  const streak = getCurrentStreak(habit, user.streakFreezes ?? []);
   const isTemp = !!habit.expiresAt;
 
   return (
@@ -49,21 +49,24 @@ export const HabitCard = ({ habit, date }: { habit: Habit; date: Date }) => {
             <div className={cn("font-semibold truncate text-sm", done && "line-through text-muted-foreground")}>
               {habit.name}
             </div>
-            <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-              {streak > 0 && (
-                <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                  <Flame className="w-3 h-3 text-accent" />
-                  <span>{streak}d streak</span>
-                </div>
-              )}
-              {isTemp && (
+            {isTemp && (
+              <div className="mt-0.5">
                 <span className="text-[10px] font-semibold text-warning bg-warning/10 px-1.5 py-0.5 rounded-full">
                   Today only
                 </span>
-              )}
-            </div>
+              </div>
+            )}
           </div>
         </div>
+
+        {/* Timer button */}
+        <button
+          onClick={(e) => { e.stopPropagation(); setTimerOpen(true); }}
+          className="p-2 rounded-xl hover:bg-muted text-muted-foreground shrink-0 transition-smooth"
+          aria-label="Start Pomodoro timer"
+        >
+          <Timer className="w-3.5 h-3.5" />
+        </button>
 
         {/* Edit button */}
         <button
@@ -89,11 +92,17 @@ export const HabitCard = ({ habit, date }: { habit: Habit; date: Date }) => {
         </div>
       </div>
 
-      {/* Edit dialog — controlled externally */}
       <CreateHabitDialog
         initialHabit={habit}
         open={editOpen}
         onOpenChange={setEditOpen}
+      />
+
+      <PomodoroSheet
+        habit={habit}
+        date={date}
+        open={timerOpen}
+        onOpenChange={setTimerOpen}
       />
     </>
   );

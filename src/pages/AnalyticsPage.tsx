@@ -1,6 +1,6 @@
 import { useApp } from "@/hooks/useAppState";
 import { Heatmap } from "@/components/Heatmap";
-import { completionRate, getCurrentStreak, getDailyStreak, getLongestStreak, isCompletedOn, isHabitScheduled } from "@/lib/habits";
+import { completionRate, getDailyStreak, isCompletedOn, isHabitScheduled } from "@/lib/habits";
 import { Flame, TrendingUp, Target, Calendar } from "lucide-react";
 
 interface WeekRate { label: string; rate: number }
@@ -155,31 +155,6 @@ const AnalyticsPage = () => {
           <span className="w-3 h-3 rounded-sm bg-primary" />
           <span>More</span>
         </div>
-      </section>
-
-      <section className="bg-card border border-border rounded-3xl p-5 shadow-soft">
-        <h2 className="font-semibold mb-3">Per-habit streaks</h2>
-        {habits.length === 0 ? (
-          <p className="text-sm text-muted-foreground text-center py-4">No habits yet.</p>
-        ) : (
-          <div className="space-y-3">
-            {habits.map((h) => (
-              <div key={h.id} className="flex items-center gap-3">
-                <div className="text-2xl">{h.emoji}</div>
-                <div className="flex-1 min-w-0">
-                  <div className="font-medium truncate">{h.name}</div>
-                  <div className="text-xs text-muted-foreground">
-                    Best: {getLongestStreak(h)} · Now: {getCurrentStreak(h)}
-                  </div>
-                </div>
-                <div className="flex items-center gap-1 text-accent font-semibold">
-                  <Flame className="w-4 h-4" />
-                  {getCurrentStreak(h)}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
       </section>
 
       {habits.length > 0 && (

@@ -1,7 +1,7 @@
 import { useApp, LOGIN_BONUSES } from "@/hooks/useAppState";
 import {
   habitsForDay, completionRate, getDailyStreak, isHabitActive, toDateKey,
-  getStreakRecoveryDate, getCurrentStreak, getLongestStreak, isCompletedOn, isHabitScheduled,
+  isCompletedOn, isHabitScheduled,
 } from "@/lib/habits";
 import { computeEarnedBadges } from "@/lib/badges";
 import { HabitCard } from "@/components/HabitCard";
@@ -121,12 +121,6 @@ const Index = () => {
 
   const isFrozenToday = user.streakFreezes?.includes(todayKey) ?? false;
   const earnedBadges = computeEarnedBadges(habits, user);
-
-  const recoverableDates: Record<string, string> = {};
-  for (const h of activeHabits) {
-    const d = getStreakRecoveryDate(h, user.streakFreezes ?? []);
-    if (d) recoverableDates[h.id] = d;
-  }
 
   const greeting = (() => {
     const hr = today.getHours();
@@ -339,7 +333,7 @@ const Index = () => {
         )}
       </section>
 
-      <StreakRecoveryCard habits={activeHabits} recoverableDates={recoverableDates} />
+      <StreakRecoveryCard />
 
       {/* Expired temp habits recovery */}
       {expiredHabits.length > 0 && (
@@ -478,32 +472,6 @@ const Index = () => {
             <span className="w-3 h-3 rounded-sm bg-primary" />
             <span>More</span>
           </div>
-        </div>
-
-        {/* Per-habit streaks */}
-        <div className="bg-card border border-border rounded-3xl p-5 shadow-soft mb-4">
-          <h3 className="font-semibold mb-3">Per-habit streaks</h3>
-          {habits.length === 0 ? (
-            <p className="text-sm text-muted-foreground text-center py-4">No habits yet.</p>
-          ) : (
-            <div className="space-y-3">
-              {habits.map((h) => (
-                <div key={h.id} className="flex items-center gap-3">
-                  <div className="text-2xl">{h.emoji}</div>
-                  <div className="flex-1 min-w-0">
-                    <div className="font-medium truncate">{h.name}</div>
-                    <div className="text-xs text-muted-foreground">
-                      Best: {getLongestStreak(h)} · Now: {getCurrentStreak(h)}
-                    </div>
-                  </div>
-                  <div className="flex items-center gap-1 text-accent font-semibold">
-                    <Flame className="w-4 h-4" />
-                    {getCurrentStreak(h)}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
         </div>
 
         {/* Insight */}
